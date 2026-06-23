@@ -15,22 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.AddCircle
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,15 +30,8 @@ import com.preappointment1.app.data.SessionManager
 import com.preappointment1.app.data.api.ApiClient
 import com.preappointment1.app.billing.BillingManager
 import com.preappointment1.app.ui.screens.*
-import com.preappointment1.app.ui.theme.Black
-import com.preappointment1.app.ui.theme.Gray200
-import com.preappointment1.app.ui.theme.Gray400
-import com.preappointment1.app.ui.theme.White
-import com.preappointment1.app.ui.theme.LivingPatientMemoryTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.preappointment1.app.ui.theme.*
+import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,7 +39,7 @@ class MainActivity : ComponentActivity() {
         SessionManager.init(this)
         BillingManager.initialize(this)
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             val ok = AuthHelper.ensureAuthenticated()
             Log.d("LPM_APP", if (ok) "Auth OK" else "Auth failed")
         }
@@ -83,32 +63,24 @@ private enum class AppScreen {
 
 @Composable
 private fun AppRoot() {
+    var selectedFollowUpId by remember { mutableStateOf<String?>(null) }
     var screen by remember { mutableStateOf(AppScreen.Splash) }
-    var refreshKey by remember { mutableIntStateOf(0) }
-    var selectedFollowUp by remember { mutableStateOf<FollowUpUi?>(null) }
     var hasSeenWelcome by remember { mutableStateOf(SessionManager.getToken() != null) }
-    var pendingFollowUpId by remember { mutableStateOf<String?>(null) }
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     var followUps by remember { mutableStateOf<List<FollowUpUi>>(emptyList()) }
 
-    LaunchedEffect(refreshKey) {
+    val selectedFollowUp = remember(followUps, selectedFollowUpId) {
+        followUps.firstOrNull { it.id == selectedFollowUpId }
+    }
+    LaunchedEffect(hasSeenWelcome) {
         if (!hasSeenWelcome) return@LaunchedEffect
         try {
             val subscriptions = ApiClient.apiService.getSubscriptions()
             val agents = ApiClient.apiService.getAgents().associateBy { it.id }
             followUps = subscriptions.map { it.toFollowUpUi(agents) }
-            
-            if (pendingFollowUpId != null) {
-                val found = followUps.find { it.id == pendingFollowUpId }
-                if (found != null) {
-                    selectedFollowUp = found
-                    screen = AppScreen.Journey
-                }
-                pendingFollowUpId = null
-            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -168,14 +140,14 @@ private fun AppRoot() {
                         color = com.preappointment1.app.ui.theme.Gray400,
                         letterSpacing = 1.sp
                     )
-                    
+
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         items(followUps) { followUp ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        selectedFollowUp = followUp
+                                        selectedFollowUpId = followUp.id
                                         screen = AppScreen.Journey
                                         scope.launch { drawerState.close() }
                                     }
@@ -247,10 +219,10 @@ private fun AppRoot() {
                 }
             ) { padding ->
                 DashboardScreen(
-                    refreshKey = refreshKey,
+                    followUps = followUps,
                     onNewFollowUp = { screen = AppScreen.NewFollowUp },
                     onOpenJourney = { followUp ->
-                        selectedFollowUp = followUp
+                        selectedFollowUpId = followUp.id
                         screen = AppScreen.Journey
                     },
                     onOpenNotifications = { screen = AppScreen.Notifications },
@@ -269,6 +241,8 @@ private fun AppRoot() {
                 ProfileScreen(
                     onBack = { screen = AppScreen.Home },
                     onLogout = {
+                        followUps = emptyList()
+                        selectedFollowUpId = null
                         hasSeenWelcome = false
                         screen = AppScreen.Welcome
                     },
@@ -279,8 +253,22 @@ private fun AppRoot() {
             AppScreen.NewFollowUp -> OnboardingScreen(
                 onBack = { screen = AppScreen.Home },
                 onFollowUpCreated = { newId ->
-                    pendingFollowUpId = newId
-                    refreshKey++
+                    scope.launch {
+                        try {
+                            val subs = withContext(Dispatchers.IO) {
+                                ApiClient.apiService.getSubscriptions()
+                            }
+                            val agents = withContext(Dispatchers.IO) {
+                                ApiClient.apiService.getAgents().associateBy { it.id }
+                            }
+
+                            followUps = subs.map { it.toFollowUpUi(agents) }
+                            selectedFollowUpId = newId
+                            screen = AppScreen.Journey
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                 }
             )
 
@@ -292,15 +280,14 @@ private fun AppRoot() {
                     JourneyScreen(
                         followUp = followUp,
                         onBack = {
-                            refreshKey++
                             screen = AppScreen.Home
                         },
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                         onOpenReport = { screen = AppScreen.Report },
                         onFollowUpUpdated = { updated ->
-                            selectedFollowUp = updated
-                            // Also update the list
-                            followUps = followUps.map { if (it.id == updated.id) updated else it }
+                            followUps = followUps.map {
+                                if (it.id == updated.id) updated else it
+                            }
                         }
                     )
                 }
@@ -316,7 +303,6 @@ private fun AppRoot() {
                         rules = followUp.rules,
                         onBack = { screen = AppScreen.Journey },
                         onComplete = {
-                            refreshKey++
                             screen = AppScreen.Home
                         }
                     )
@@ -334,6 +320,7 @@ private fun AppRoot() {
                 } else {
                     ReportScreen(
                         followUp = followUp,
+                        onOpenReport = { followUp.id },
                         onBack = { screen = AppScreen.Journey }
                     )
                 }

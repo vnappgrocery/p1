@@ -47,61 +47,28 @@ data class FollowUpUi(
 
 @Composable
 fun DashboardScreen(
-    refreshKey: Int,
+    followUps: List<FollowUpUi>,
     onNewFollowUp: () -> Unit,
     onOpenJourney: (FollowUpUi) -> Unit,
     onOpenNotifications: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var followUps by remember { mutableStateOf<List<FollowUpUi>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val activeFollowUps = remember(followUps) {
+        followUps.filter { it.isActive }
+    }
     var showComingSoon by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
-    LaunchedEffect(refreshKey) {
-        isLoading = true
-        errorMessage = null
-        try {
-            if (!AuthHelper.ensureAuthenticated()) {
-                errorMessage = "Unable to connect. Check your network."
-                followUps = emptyList()
-                return@LaunchedEffect
-            }
-            val subscriptions = ApiClient.apiService.getSubscriptions()
-            val agents = ApiClient.apiService.getAgents().associateBy { it.id }
-            followUps = subscriptions.map { it.toFollowUpUi(agents) }
-        } catch (e: Exception) {
-            errorMessage = "Unable to load your follow-ups."
-            followUps = emptyList()
-        } finally {
-            isLoading = false
-        }
-    }
 
     if (showComingSoon) {
         ComingSoonDialog(onDismiss = { showComingSoon = false })
     }
 
-    val activeFollowUps = followUps.filter { it.isActive }
-    val today = LocalDate.now().format(
-        DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.ENGLISH)
-    )
 
     Scaffold(
         containerColor = White,
         modifier = modifier
     ) { padding ->
-        if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                androidx.compose.material3.CircularProgressIndicator(color = Black)
-            }
-        } else if (activeFollowUps.isEmpty()) {
+        if (activeFollowUps.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

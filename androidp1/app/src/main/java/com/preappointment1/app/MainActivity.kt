@@ -275,6 +275,10 @@ private fun AppRoot() {
 
             AppScreen.Journey -> {
                 val followUp = selectedFollowUp
+                Text(
+                    text = "VN App Grocery: journey ${followUp.title}",
+                    color = Color.Red
+                )
                 if (followUp == null) {
                     screen = AppScreen.Home
                 } else {

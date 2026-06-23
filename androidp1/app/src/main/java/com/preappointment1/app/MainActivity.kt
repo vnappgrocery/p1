@@ -32,6 +32,7 @@ import com.preappointment1.app.billing.BillingManager
 import com.preappointment1.app.ui.screens.*
 import com.preappointment1.app.ui.theme.*
 import kotlinx.coroutines.*
+import androidx.lifecycle.lifecycleScope
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -320,7 +321,6 @@ private fun AppRoot() {
                 } else {
                     ReportScreen(
                         followUp = followUp,
-                        onOpenReport = { followUp.id },
                         onBack = { screen = AppScreen.Journey }
                     )
                 }
